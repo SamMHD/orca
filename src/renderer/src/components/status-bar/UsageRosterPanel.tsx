@@ -11,11 +11,13 @@ import {
   getDisplayedUsagePercentage,
   type UsagePercentageDisplay
 } from '../../../../shared/usage-percentage-display'
+import { getUsagePace, getUsagePaceNextChangeAt } from '../../../../shared/usage-pace'
 import { barColor, formatResetCountdown, getWindowSections, ProviderIcon } from './tooltip'
 import { getProviderDisplayName } from './usage-error-copy'
 import { formatPlanLabel, usageTextColorClass } from './usage-roster-formatting'
 import { getUsageRosterRowState, type UsageRosterRowState } from './usage-roster-row-state'
 import type { StatusBarUsageMode } from '../../../../shared/status-bar-usage-mode'
+import { UsagePaceMarker } from './UsagePaceMarker'
 
 type ProviderId = ProviderRateLimits['provider']
 export type UsageSection = { label: string; window: RateLimitWindow }
@@ -84,25 +86,32 @@ function UsageMetric({
   section,
   label,
   display,
-  showBar = true
+  showBar = true,
+  now
 }: {
   section: UsageSection
   label: string
   display: UsagePercentageDisplay
   showBar?: boolean
+  now: number
 }): React.JSX.Element {
   const used = clampUsedPercent(section.window.usedPercent)
   const shown = getDisplayedUsagePercentage(section.window.usedPercent, display)
+  const pace = showBar ? getUsagePace(section.window, now) : null
+  const pacePct = pace ? getDisplayedUsagePercentage(pace.expectedUsedPercent, display) : 0
 
   return (
     <span data-usage-window={section.label} className="flex shrink-0 items-center gap-1.5">
       <span className="text-[10px] text-muted-foreground">{label}</span>
       {showBar ? (
-        <span data-usage-bar className="h-[5px] w-7 overflow-hidden rounded-full bg-muted">
-          <span
-            className={`block h-full rounded-full ${barColor(used)}`}
-            style={{ width: `${shown}%` }}
-          />
+        <span className="relative inline-flex h-[5px] w-7">
+          <span data-usage-bar className="h-full w-full overflow-hidden rounded-full bg-muted">
+            <span
+              className={`block h-full rounded-full ${barColor(used)}`}
+              style={{ width: `${shown}%` }}
+            />
+          </span>
+          {pace ? <UsagePaceMarker percent={pacePct} stage={pace.stage} thin /> : null}
         </span>
       ) : null}
       <span className={`tabular-nums text-[11px] ${usageTextColorClass(used)}`}>{shown}%</span>
@@ -160,6 +169,7 @@ export function UsageRow({
               label={tightest.label}
               display={display}
               showBar={false}
+              now={now}
             />
           </span>
         ) : reset ? (
@@ -174,6 +184,7 @@ export function UsageRow({
               section={section}
               label={shortLabel(p, section)}
               display={display}
+              now={now}
             />
           ))}
         </div>
@@ -218,10 +229,10 @@ export function UsageRosterPanel({
   renderRow?: (p: ProviderRateLimits, row: React.ReactNode) => React.ReactNode
 }): React.JSX.Element {
   // Why: one boundary-scheduled clock keeps every open row current without per-provider timers.
+  const sections = providers.flatMap(usedSections)
   const now = useResetCountdownClock(
-    providers.flatMap((provider) =>
-      usedSections(provider).map((section) => section.window.resetsAt)
-    )
+    sections.map((section) => section.window.resetsAt),
+    (at) => sections.map((section) => getUsagePaceNextChangeAt(section.window, at))
   )
   // Worst-first so the agent nearest a limit sits on top.
   const sorted = [...providers].sort(

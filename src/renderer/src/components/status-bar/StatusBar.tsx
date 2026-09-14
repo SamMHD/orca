@@ -103,7 +103,9 @@ import {
   normalizeUsagePercentageDisplay,
   type UsagePercentageDisplay
 } from '../../../../shared/usage-percentage-display'
+import { getUsagePace, getUsagePaceNextChangeAt } from '../../../../shared/usage-pace'
 import { formatUsagePercentageLabel } from './usage-percentage-label'
+import { UsagePaceMarker } from './UsagePaceMarker'
 import {
   normalizeStatusBarUsageMode,
   type StatusBarUsageMode
@@ -964,21 +966,28 @@ export function ClaudeSwitcherMenu({
 }
 
 function MiniBar({
-  usedPct,
+  usageWindow,
   display
 }: {
-  usedPct: number
+  usageWindow: RateLimitWindow
   display: UsagePercentageDisplay
 }): React.JSX.Element {
+  const usedPct = clampUsedPercent(usageWindow.usedPercent)
+  const now = useResetCountdownClock([usageWindow.resetsAt], (at) => [
+    getUsagePaceNextChangeAt(usageWindow, at)
+  ])
+  const pace = getUsagePace(usageWindow, now)
+  const pacePct = pace ? getDisplayedUsagePercentage(pace.expectedUsedPercent, display) : 0
+
   return (
-    <div
-      data-usage-bar
-      className="w-[48px] h-[6px] rounded-full bg-muted overflow-hidden flex-shrink-0"
-    >
-      <div
-        className="h-full rounded-full transition-all duration-300 bg-muted-foreground/40"
-        style={{ width: `${getDisplayedUsagePercentage(usedPct, display)}%` }}
-      />
+    <div className="relative w-[48px] h-[6px] flex shrink-0">
+      <div data-usage-bar className="h-full w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-muted-foreground/40 transition-all duration-300"
+          style={{ width: `${getDisplayedUsagePercentage(usedPct, display)}%` }}
+        />
+      </div>
+      {pace ? <UsagePaceMarker percent={pacePct} stage={pace.stage} thin /> : null}
     </div>
   )
 }
@@ -1313,7 +1322,7 @@ export function ProviderSegment({
       {mode === 'verbose' ? (
         <>
           {tightest && !compact ? (
-            <MiniBar usedPct={clampUsedPercent(tightest.window.usedPercent)} display={display} />
+            <MiniBar usageWindow={tightest.window} display={display} />
           ) : null}
           <VerboseProviderUsage p={p} display={display} />
         </>
